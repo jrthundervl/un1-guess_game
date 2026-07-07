@@ -1,0 +1,82 @@
+
+services:
+  # Banco de Dados Postgres
+  postgres_db:
+    image: postgres:16
+    container_name: guess_game_db
+    restart: always
+    environment:
+      POSTGRES_USER: guess_user
+      POSTGRES_PASSWORD: guess_password
+      POSTGRES_DB: guess_game
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guess_user -d guess_game"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+    networks:
+      - backend_net
+
+  # Backend Python (Flask) - 2 instâncias
+  backend:
+    build:
+      context: ./guess_game
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      #Variáveis mapeadas a partir do README do projeto
+      - FLASK_APP=run.py
+      - FLASK_DB_TYPE=postgres
+      - FLASK_DB_USER=guess_user
+      - FLASK_DB_NAME=guess_game
+      - FLASK_DB_PASSWORD=guess_password
+      - FLASK_DB_HOST=postgres_db
+      - FLASK_DB_PORT=5432
+
+    depends_on:
+      - postgres_db
+    deploy:
+      replicas: 2
+    networks:
+      - backend_net
+      - frontend_net
+
+  # Proxy Reverso e Servidor Frontend (NGINX)
+  nginx_proxy:
+    image: nginx:1.25
+    container_name: guess_game_proxy
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - frontend_assets:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - frontend_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    volumes:
+      - frontend_assets:/usr/share/nginx/html
+    deploy:
+      replicas: 1
+    networks:
+      - frontend_net
+
+volumes:
+  postgres_data:
+    driver: local
+  frontend_assets:
+
+networks:
+  backend_net:
+    driver: bridge
+  frontend_net:
+    driver: bridge
